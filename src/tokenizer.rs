@@ -2,6 +2,12 @@ pub struct Tokenizer {
     vocab: std::collections::HashMap<String, usize>,
 }
 
+impl Default for Tokenizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tokenizer {
     pub fn new() -> Self {
         let mut vocab = std::collections::HashMap::new();

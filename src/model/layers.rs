@@ -7,9 +7,14 @@ pub struct Linear {
 
 impl Linear {
     pub fn new(in_features: usize, out_features: usize) -> Self {
-        let mut rng = rand::thread_rng();
+        // let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let weights = (0..out_features)
-            .map(|_| (0..in_features).map(|_| rng.gen_range(-0.1..0.1)).collect())
+            .map(|_| {
+                (0..in_features)
+                    .map(|_| rng.random_range(-0.1..0.1))
+                    .collect()
+            })
             .collect();
         let bias = vec![0.0; out_features];
         Self { weights, bias }

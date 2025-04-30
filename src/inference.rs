@@ -11,7 +11,7 @@ impl InferenceEngine {
         Self { model, tokenizer }
     }
 
-    pub fn generate(&self, prompt: &self) -> Vec<f32> {
+    pub fn generate(&self, prompt: &str) -> Vec<f32> {
         let tokens = self.tokenizer.tokenize(prompt);
         let input = tokens.iter().map(|&t| t as f32).collect::<Vec<_>>();
         self.model.forward(input)
