@@ -1,36 +1,34 @@
 mod model;
+mod training;
 
 use model::transformer::{ModelConfig, SimpleTransformer};
+use training::optimizer::SGD;
+use training::trainer::Trainer;
 
 fn main() {
-    // Set up model configuration
     let config = ModelConfig {
-        hidden_size: 64,             // dimension of each token
-        num_heads: 8,                // number of attention heads
-        num_layers: 2,               // number of transformer blocks
-        max_position_embeddings: 16, // max sequence length
+        hidden_size: 64,
+        num_heads: 8,
+        num_layers: 2,
+        max_position_embeddings: 16,
     };
 
-    // Create model
-    let model = SimpleTransformer::new(&config);
+    let mut model = SimpleTransformer::new(&config);
+    let optimizer = SGD::new(0.01);
+    let mut trainer = Trainer::new(&mut model, optimizer);
 
-    // Simulate a single input sequence: 10 tokens, each with `hidden_size` dimensions
-    let seq_len = 10;
-    let single_input = vec![0.5; config.hidden_size * seq_len];
+    // Generate synthetic training data
+    let sequence_len = 10;
+    let num_samples = 6;
+    let batch_size = 2;
 
-    println!("== Single Sequence Inference ==");
-    let output = model.forward(single_input.clone());
-    println!("Output (first 8 values): {:?}", &output[..8]);
+    let dummy_data: Vec<(Vec<f32>, Vec<f32>)> = (0..num_samples)
+        .map(|_| {
+            let input = vec![0.5; config.hidden_size * sequence_len];
+            let target = vec![0.8; config.hidden_size * sequence_len];
+            (input, target)
+        })
+        .collect();
 
-    // Batched inference with two sequences
-    let batch_input = vec![
-        single_input.clone(),                    // sequence 1
-        vec![0.1; config.hidden_size * seq_len], // sequence 2
-    ];
-
-    println!("\n== Batched Inference ==");
-    let batch_output = model.forward_batch(batch_input);
-    for (i, out) in batch_output.iter().enumerate() {
-        println!("Sample {}: {:?}", i, &out[..8]);
-    }
+    trainer.train(dummy_data, batch_size);
 }
