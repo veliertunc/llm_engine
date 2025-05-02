@@ -17,9 +17,7 @@ pub struct SimpleTransformer {
     pub ff_norms: Vec<LayerNorm>,
 }
 
-
 impl SimpleTransformer {
-    
     pub fn new(config: &ModelConfig) -> Self {
         let hidden_size = config.hidden_size;
 
@@ -39,7 +37,8 @@ impl SimpleTransformer {
             .map(|_| LayerNorm::new(config.hidden_size))
             .collect();
 
-        let pos_encoding = PositionalEncoding::new(config.max_position_embeddings, config.hidden_size), 
+        let pos_encoding =
+            PositionalEncoding::new(config.max_position_embeddings, config.hidden_size);
 
         Self {
             hidden_size,
@@ -51,36 +50,40 @@ impl SimpleTransformer {
         }
     }
 
-
     /// Forward pass through the full Transformer.
     /// Input is a flattened vector of shape [seq_len * hidden_size].
     pub fn forward(&self, input: Vec<f32>) -> Vec<f32> {
-        // let seq_len = input.len() / self.hidden_size;
+        let seq_len = input.len() / self.hidden_size;
 
-        // Reshape input into [seq_len][hidden_size]
         let mut embedded_input = input
             .chunks(self.hidden_size)
             .map(|chunk| chunk.to_vec())
             .collect::<Vec<_>>();
 
-        // Add positional embeddings to token vectors
         self.pos_encoding.add_encoding(&mut embedded_input);
 
-        // Flatten it back for processing
         let mut input = embedded_input.into_iter().flatten().collect::<Vec<_>>();
 
-        for ((attn, attn_norm), (ff, ff_norm)) in 
-            self.attention_layers.iter().zip(self.attn_norms.iter())
-            .zip(self.ff_layers.iter().zip(self.ff_norms.iter())) {
-
-            // Attention block with residual + norm
-            let attn_out = attn.forward(&input);
-            let attn_out = attn_out.iter().zip(&input).map(|(a, i)| a + i).collect::<Vec<_>>();
+        for ((attn, attn_norm), (ff, ff_norm)) in self
+            .attention_layers
+            .iter()
+            .zip(self.attn_norms.iter())
+            .zip(self.ff_layers.iter().zip(self.ff_norms.iter()))
+        {
+            let attn_out = attn.forward(&input, seq_len, true); // use_mask = true
+            let attn_out = attn_out
+                .iter()
+                .zip(&input)
+                .map(|(a, i)| a + i)
+                .collect::<Vec<_>>();
             let attn_normed = attn_norm.forward(&attn_out);
 
-            // Feedforward block with residual + norm
             let ff_out = ff.forward(&attn_normed);
-            let ff_out = ff_out.iter().zip(&attn_normed).map(|(f, i)| f + i).collect::<Vec<_>>();
+            let ff_out = ff_out
+                .iter()
+                .zip(&attn_normed)
+                .map(|(f, i)| f + i)
+                .collect::<Vec<_>>();
             input = ff_norm.forward(&ff_out);
         }
 

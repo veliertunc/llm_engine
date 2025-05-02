@@ -1,5 +1,6 @@
 use crate::model::layers::Linear;
 
+/// Multi-head self-attention layer.
 pub struct MultiHeadAttention {
     pub num_heads: usize,
     pub head_dim: usize,
@@ -10,6 +11,7 @@ pub struct MultiHeadAttention {
 }
 
 impl MultiHeadAttention {
+    /// Initialize a new multi-head attention layer.
     pub fn new(embed_dim: usize, num_heads: usize) -> Self {
         let head_dim = embed_dim / num_heads;
         Self {
@@ -22,34 +24,63 @@ impl MultiHeadAttention {
         }
     }
 
-    pub fn forward(&self, input: &[f32]) -> Vec<f32> {
-        let queries = self.query_proj.forward(input);
-        let keys = self.key_proj.forward(input);
-        let values = self.value_proj.forward(input);
+    /// Forward pass with optional causal mask.
+    ///
+    /// Input is a flattened vector of shape [seq_len * hidden_size].
+    pub fn forward(&self, input: &[f32], seq_len: usize, use_mask: bool) -> Vec<f32> {
+        let q = self.query_proj.forward(input);
+        let k = self.key_proj.forward(input);
+        let v = self.value_proj.forward(input);
 
-        let attention_scores = Self::scaled_dot_product(&queries, &keys, self.head_dim as f32);
-        let attention_probs = Self::softmax(&attention_scores);
+        let hidden_size = self.num_heads * self.head_dim;
+        let q_mat = q
+            .chunks(hidden_size)
+            .map(|x| x.to_vec())
+            .collect::<Vec<_>>();
+        let k_mat = k
+            .chunks(hidden_size)
+            .map(|x| x.to_vec())
+            .collect::<Vec<_>>();
+        let v_mat = v
+            .chunks(hidden_size)
+            .map(|x| x.to_vec())
+            .collect::<Vec<_>>();
 
-        let mut output = vec![0.0; values.len()];
+        // Compute scaled dot-product attention scores
+        let mut attention_output = vec![vec![0.0; hidden_size]; seq_len];
+        for i in 0..seq_len {
+            let mut scores = vec![0.0; seq_len];
+            for j in 0..seq_len {
+                if use_mask && j > i {
+                    scores[j] = f32::NEG_INFINITY; // mask future
+                } else {
+                    scores[j] = Self::dot(&q_mat[i], &k_mat[j]) / (self.head_dim as f32).sqrt();
+                }
+            }
 
-        for (i, prob) in attention_probs.iter().enumerate() {
-            output[i] = prob * values[i];
+            let weights = Self::softmax(&scores);
+            for j in 0..seq_len {
+                for d in 0..hidden_size {
+                    attention_output[i][d] += weights[j] * v_mat[j][d];
+                }
+            }
         }
 
-        self.output_proj.forward(&output)
+        // Flatten and apply output projection
+        let output_flat = attention_output.into_iter().flatten().collect::<Vec<_>>();
+        self.output_proj.forward(&output_flat)
     }
 
-    fn scaled_dot_product(q: &[f32], k: &[f32], scale: f32) -> Vec<f32> {
-        q.iter()
-            .zip(k)
-            .map(|(qi, ki)| (qi * ki) / scale.sqrt())
-            .collect()
+    /// Compute dot product between two vectors.
+    fn dot(a: &[f32], b: &[f32]) -> f32 {
+        a.iter().zip(b).map(|(x, y)| x * y).sum()
     }
 
+    /// Numerically stable softmax over a 1D vector.
     fn softmax(logits: &[f32]) -> Vec<f32> {
-        let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let exp: Vec<f32> = logits.iter().map(|x| (x - max_logit).exp()).collect();
-        let sum_exp: f32 = exp.iter().sum();
-        exp.iter().map(|x| x / sum_exp).collect()
+        let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = logits.iter().map(|x| (x - max).exp()).collect();
+        let sum: f32 = exps.iter().sum();
+        exps.iter().map(|x| x / sum).collect()
     }
 }
