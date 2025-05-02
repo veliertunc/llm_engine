@@ -1,9 +1,8 @@
-use crate::{
-    config::ModelConfig,
-    model::{
-        layernorm::LayerNorm, linear::Linear, positional::PositionalEncoding,
-        transformer::SimpleTransformer,
-    },
+use crate::model::{
+    layernorm::LayerNorm,
+    linear::Linear,
+    positional::PositionalEncoding,
+    transformer::{ModelConfig, SimpleTransformer},
 };
 use std::io::{Read, Write};
 

@@ -1,12 +1,17 @@
-use crate::{
-    config::ModelConfig,
-    model::{
-        attention::MultiHeadAttention, layernorm::LayerNorm, linear::Linear,
-        positional::PositionalEncoding,
-    },
+use crate::model::{
+    attention::MultiHeadAttention, layernorm::LayerNorm, linear::Linear,
+    positional::PositionalEncoding,
 };
 
 use rayon::prelude::*;
+/// Config for building a transformer
+pub struct ModelConfig {
+    pub hidden_size: usize,
+    pub num_heads: usize,
+    pub num_layers: usize,
+    pub max_position_embeddings: usize,
+}
+
 /// Simplified Transformer model
 pub struct SimpleTransformer {
     pub hidden_size: usize,
