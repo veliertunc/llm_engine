@@ -1,5 +1,4 @@
-use crate::model::SimpleTransformer;
-use crate::tokenizer::Tokenizer;
+use crate::{model::transformer::SimpleTransformer, tokenizer::Tokenizer};
 
 pub struct InferenceEngine {
     model: SimpleTransformer,

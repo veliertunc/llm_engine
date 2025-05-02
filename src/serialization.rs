@@ -1,6 +1,9 @@
 use crate::{
     config::ModelConfig,
-    model::{LayerNorm, Linear, MultiHeadAttention, PositionalEncoding, SimpleTransformer},
+    model::{
+        layernorm::LayerNorm, linear::Linear, positional::PositionalEncoding,
+        transformer::SimpleTransformer,
+    },
 };
 use std::io::{Read, Write};
 
@@ -35,7 +38,7 @@ pub fn load_model<R: Read>(
     reader: &mut R,
     config: &ModelConfig,
 ) -> std::io::Result<SimpleTransformer> {
-    use crate::model::MultiHeadAttention;
+    use crate::model::attention::MultiHeadAttention;
 
     let pos_encoding = load_positional(reader, config.max_position_embeddings, config.hidden_size)?;
 
