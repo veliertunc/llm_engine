@@ -25,7 +25,9 @@ impl<'a> Trainer<'a> {
                 let loss = mse_loss(output.as_slice(), target.as_slice());
                 batch_loss += loss;
 
-                // 🔁 This is where a backward pass would occur
+                // 🔁 Simulate backward pass
+                self.model.backward();
+
                 println!(
                     "[Step {}] Sample loss: {:.4} (backward placeholder)",
                     step, loss

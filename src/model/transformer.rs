@@ -94,4 +94,9 @@ impl SimpleTransformer {
     pub fn forward_batch(&self, batch: Vec<Vec<f32>>) -> Vec<Vec<f32>> {
         batch.into_par_iter().map(|x| self.forward(x)).collect()
     }
+
+    /// Placeholder for backward pass. In real impl, this computes gradients.
+    pub fn backward(&mut self) {
+        println!("[BACKWARD] Simulating gradient computation (not implemented yet)");
+    }
 }
