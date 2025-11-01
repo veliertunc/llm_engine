@@ -1,52 +1,76 @@
 use crate::model::transformer::SimpleTransformer;
-use crate::training::loss::mse_loss;
-use crate::training::optimizer::SGD;
+use crate::tokenizer::Tokenizer;
+use crate::training::consts::{EPOCHS, LEARNING_RATE};
 
-pub struct Trainer<'a> {
-    pub model: &'a mut SimpleTransformer,
-    pub optimizer: SGD,
+use crate::utils::checkpointing::{load_checkpoint, save_checkpoint};
+use crate::utils::distributed::aggregate_gradients_distributed;
+use crate::utils::gradient_clipping::clip_gradients;
+use crate::utils::lr_scheduler::adjust_learning_rate;
+
+pub struct Trainer {
+    pub lr: f32,
+    pub clip_value: f32,
+    pub warmup_steps: usize,
+    pub total_steps: usize,
+    pub num_workers: usize,
 }
 
-impl<'a> Trainer<'a> {
-    pub fn new(model: &'a mut SimpleTransformer, optimizer: SGD) -> Self {
-        Self { model, optimizer }
-    }
-
-    /// Train for one epoch over synthetic data in mini-batches
-    pub fn train(&mut self, data: Vec<(Vec<f32>, Vec<f32>)>, batch_size: usize) {
-        let mut total_loss = 0.0;
+impl Trainer {
+    /// Trains the transformer model using standard gradient descent with scheduling, clipping, and checkpointing
+    pub fn train(
+        &mut self,
+        model: &mut SimpleTransformer,
+        data: &[Vec<usize>],
+        targets: &[Vec<usize>],
+    ) {
         let mut step = 0;
 
-        for batch in data.chunks(batch_size) {
-            let mut batch_loss = 0.0;
+        for epoch in 0..10 {
+            println!("Epoch {epoch}");
 
-            for (input, target) in batch.iter() {
-                let output = self.model.forward(input.clone());
-                let loss = mse_loss(output.as_slice(), target.as_slice());
-                batch_loss += loss;
-
-                // 🔁 Simulate backward pass
-                self.model.backward();
-
-                println!(
-                    "[Step {}] Sample loss: {:.4} (backward placeholder)",
-                    step, loss
-                );
+            for (input, target) in data.iter().zip(targets.iter()) {
                 step += 1;
+
+                // Adjust learning rate with warmup/decay schedule
+                let lr = adjust_learning_rate(self.lr, step, self.warmup_steps, self.total_steps);
+
+                // Forward pass and compute loss
+                let _output = model.forward(input); // Replace with actual loss computation
+                let loss = model.mse_loss(target); // Implement mse_loss in model
+
+                // Backward pass (returns gradients of all parameters as flat Vec<f32>)
+                let mut grads = model.backward();
+
+                // Clip gradients by global norm
+                clip_gradients(&mut grads, self.clip_value);
+
+                // Aggregate gradients across workers (simulated)
+                aggregate_gradients_distributed(&mut grads, self.num_workers);
+
+                // Update parameters
+                model.apply_grads(&grads, lr);
+
+                // Save periodic checkpoints
+                if step % 100 == 0 {
+                    save_checkpoint(model, epoch, &self.checkpoint_path);
+                    println!("Checkpoint saved at step {step}");
+                }
+
+                if step % 10 == 0 {
+                    println!("Step {step}, Loss: {loss:.5}");
+                }
             }
-
-            let avg_loss = batch_loss / batch.len() as f32;
-            println!("== Batch complete. Avg batch loss = {:.4} ==", avg_loss);
-
-            // 👟 Optimizer step (e.g., apply gradients)
-            self.optimizer.step();
-
-            total_loss += batch_loss;
         }
+    }
 
-        println!(
-            "Epoch complete. Avg loss = {:.4}",
-            total_loss / data.len() as f32
-        );
+    /// Resumes training from checkpoint
+    pub fn resume_training(&mut self) -> Option<(SimpleTransformer, usize)> {
+        if let Some(checkpoint) = load_checkpoint(&self.checkpoint_path) {
+            println!("Resumed from checkpoint: epoch {}", checkpoint.epoch);
+            Some((checkpoint.model, checkpoint.epoch))
+        } else {
+            println!("No checkpoint found, starting fresh");
+            None
+        }
     }
 }

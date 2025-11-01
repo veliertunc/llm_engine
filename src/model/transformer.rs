@@ -1,21 +1,15 @@
-use crate::model::{
-    attention::MultiHeadAttention, layernorm::LayerNorm, linear::Linear,
+use crate::model::layers::{
+    attention::MultiHeadAttention, embedding::TokenEmbedding, linear::Linear, norm::LayerNorm,
     positional::PositionalEncoding,
 };
 
-use rayon::prelude::*;
-/// Config for building a transformer
-pub struct ModelConfig {
-    pub hidden_size: usize,
-    pub num_heads: usize,
-    pub num_layers: usize,
-    pub max_position_embeddings: usize,
-}
+use crate::model::consts::{HIDDEN_SIZE, NUM_LAYERS};
 
-/// Simplified Transformer model
+/// A simple transformer model with token and positional embeddings
 pub struct SimpleTransformer {
-    pub hidden_size: usize,
+    pub token_embedding: TokenEmbedding,
     pub pos_encoding: PositionalEncoding,
+    pub hidden_size: usize,
     pub attention_layers: Vec<MultiHeadAttention>,
     pub attn_norms: Vec<LayerNorm>,
     pub ff_layers: Vec<Linear>,
@@ -23,29 +17,27 @@ pub struct SimpleTransformer {
 }
 
 impl SimpleTransformer {
-    pub fn new(config: &ModelConfig) -> Self {
-        let pos_encoding =
-            PositionalEncoding::new(config.max_position_embeddings, config.hidden_size);
+    /// Initializes a new transformer model
+    pub fn new() -> Self {
+        let token_embedding = TokenEmbedding::new();
+        let pos_encoding = PositionalEncoding::new();
 
-        let attention_layers = (0..config.num_layers)
-            .map(|_| MultiHeadAttention::new(config.hidden_size, config.num_heads))
-            .collect();
+        let mut attention_layers = Vec::new();
+        let mut attn_norms = Vec::new();
+        let mut ff_layers = Vec::new();
+        let mut ff_norms = Vec::new();
 
-        let attn_norms = (0..config.num_layers)
-            .map(|_| LayerNorm::new(config.hidden_size))
-            .collect();
-
-        let ff_layers = (0..config.num_layers)
-            .map(|_| Linear::new(config.hidden_size, config.hidden_size))
-            .collect();
-
-        let ff_norms = (0..config.num_layers)
-            .map(|_| LayerNorm::new(config.hidden_size))
-            .collect();
+        for _ in 0..NUM_LAYERS {
+            attention_layers.push(MultiHeadAttention::new(HIDDEN_SIZE));
+            attn_norms.push(LayerNorm::new(HIDDEN_SIZE));
+            ff_layers.push(Linear::new(HIDDEN_SIZE, HIDDEN_SIZE));
+            ff_norms.push(LayerNorm::new(HIDDEN_SIZE));
+        }
 
         Self {
-            hidden_size: config.hidden_size,
+            token_embedding,
             pos_encoding,
+            hidden_size: HIDDEN_SIZE,
             attention_layers,
             attn_norms,
             ff_layers,
@@ -53,50 +45,77 @@ impl SimpleTransformer {
         }
     }
 
-    /// Forward pass for a single sequence
-    pub fn forward(&self, input: Vec<f32>) -> Vec<f32> {
-        let seq_len = input.len() / self.hidden_size;
-        let mut embedded_input = input
-            .chunks(self.hidden_size)
-            .map(|chunk| chunk.to_vec())
-            .collect::<Vec<_>>();
+    /// Forward pass from token IDs to final vector output
+    pub fn forward(&self, token_ids: &[usize]) -> Vec<f32> {
+        let seq_len = token_ids.len();
+        let token_embeds = self.token_embedding.forward(token_ids);
+        let pos_enc = self.pos_encoding.get_encoding(seq_len);
 
-        self.pos_encoding.add_encoding(&mut embedded_input);
-        let mut input = embedded_input.into_iter().flatten().collect::<Vec<_>>();
-
-        for ((attn, attn_norm), (ff, ff_norm)) in self
-            .attention_layers
+        // Add positional encoding to token embeddings
+        let mut x: Vec<Vec<f32>> = token_embeds
             .iter()
-            .zip(self.attn_norms.iter())
-            .zip(self.ff_layers.iter().zip(self.ff_norms.iter()))
-        {
-            let attn_out = attn.forward(&input, seq_len, true);
-            let attn_out = attn_out
-                .iter()
-                .zip(&input)
-                .map(|(a, i)| a + i)
-                .collect::<Vec<_>>();
-            let attn_normed = attn_norm.forward(&attn_out);
+            .zip(pos_enc.iter())
+            .map(|(embed, pos)| embed.iter().zip(pos).map(|(a, b)| a + b).collect())
+            .collect();
 
-            let ff_out = ff.forward(&attn_normed);
-            let ff_out = ff_out
-                .iter()
-                .zip(&attn_normed)
-                .map(|(f, i)| f + i)
-                .collect::<Vec<_>>();
-            input = ff_norm.forward(&ff_out);
+        // Apply each transformer layer
+        for i in 0..self.attention_layers.len() {
+            x = x
+                .into_iter()
+                .map(|vec| {
+                    let attn_out = self.attention_layers[i].forward(&vec);
+                    let normed = self.attn_norms[i].forward(&attn_out);
+                    let ff_out = self.ff_layers[i].forward(&normed);
+                    self.ff_norms[i].forward(&ff_out)
+                })
+                .collect();
         }
 
-        input
+        // Mean pooling across sequence
+        let mut final_vec = vec![0.0; self.hidden_size];
+        for token_vec in &x {
+            for i in 0..self.hidden_size {
+                final_vec[i] += token_vec[i];
+            }
+        }
+        for val in &mut final_vec {
+            *val /= seq_len as f32;
+        }
+
+        final_vec
     }
 
-    /// Forward pass for a batch of sequences
-    pub fn forward_batch(&self, batch: Vec<Vec<f32>>) -> Vec<Vec<f32>> {
-        batch.into_par_iter().map(|x| self.forward(x)).collect()
+    /// Clears all parameter gradients
+    pub fn zero_grad(&mut self) {
+        self.token_embedding.zero_grad();
+        for attn in &mut self.attention_layers {
+            attn.zero_grad();
+        }
+        for ff in &mut self.ff_layers {
+            ff.zero_grad();
+        }
     }
 
-    /// Placeholder for backward pass. In real impl, this computes gradients.
-    pub fn backward(&mut self) {
-        println!("[BACKWARD] Simulating gradient computation (not implemented yet)");
+    /// Applies accumulated gradients to update parameters
+    pub fn apply_grad(&mut self, lr: f32) {
+        self.token_embedding.apply_grad(lr);
+        for attn in &mut self.attention_layers {
+            attn.apply_grad(lr);
+        }
+        for ff in &mut self.ff_layers {
+            ff.apply_grad(lr);
+        }
+    }
+
+    /// Simulates a backward pass by filling dummy gradients
+    pub fn backward(&mut self, token_ids: &[usize]) {
+        self.token_embedding.fill_dummy_grads(token_ids);
+        for attn in &mut self.attention_layers {
+            attn.fill_dummy_grads();
+        }
+        for ff in &mut self.ff_layers {
+            ff.weight.grad.iter_mut().for_each(|g| *g = 0.001);
+            ff.bias.grad.iter_mut().for_each(|g| *g = 0.001);
+        }
     }
 }

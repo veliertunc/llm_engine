@@ -1,6 +1,5 @@
-pub mod attention;
 pub mod common;
-pub mod layernorm;
-pub mod linear;
-pub mod positional;
+pub mod config;
+pub mod consts;
+pub mod layers;
 pub mod transformer;

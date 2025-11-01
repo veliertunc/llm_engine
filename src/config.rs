@@ -1,4 +1,4 @@
-use crate::model::transformer::ModelConfig;
+use crate::model::config::ModelConfig;
 
 /// Global Config for LLM
 pub struct AppConfig {
